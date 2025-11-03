@@ -399,9 +399,11 @@
                     ctx.beginPath();
                     // Find block directly below
                     let blockY = groundY + BLOCK_HEIGHT;
-                    for (const block of tower) {
-                        if (this.x + this.width > block.x && this.x < block.x + block.width) {
-                            blockY = Math.min(blockY, block.y);
+                    if (Array.isArray(tower)) { // Check if tower is iterable
+                        for (const block of tower) {
+                            if (this.x + this.width > block.x && this.x < block.x + block.width) {
+                                blockY = Math.min(blockY, block.y);
+                            }
                         }
                     }
                     ctx.ellipse(this.x + this.radius, (blockY - cameraY), this.radius, 4, 0, 0, Math.PI * 2);
@@ -464,17 +466,19 @@
                 this.onGround = false;
                 
                 // Check against all tower blocks
-                for (const block of tower) {
-                    if (this.vy >= 0 && // Only check if falling
-                        this.y + this.height >= block.y && 
-                        this.y + this.height <= block.y + 20 && // Within a small tolerance
-                        this.x + this.width > block.x && 
-                        this.x < block.x + block.width) 
-                    {
-                        this.y = block.y - this.height;
-                        this.vy = 0;
-                        this.onGround = true;
-                        break; // Found ground
+                if (Array.isArray(tower)) { // Check if tower is iterable
+                    for (const block of tower) {
+                        if (this.vy >= 0 && // Only check if falling
+                            this.y + this.height >= block.y && 
+                            this.y + this.height <= block.y + 20 && // Within a small tolerance
+                            this.x + this.width > block.x && 
+                            this.x < block.x + block.width) 
+                        {
+                            this.y = block.y - this.height;
+                            this.vy = 0;
+                            this.onGround = true;
+                            break; // Found ground
+                        }
                     }
                 }
 
@@ -499,6 +503,8 @@
             
             respawnOnTower() {
                 // Find the highest block to respawn on
+                if (!Array.isArray(tower) || tower.length === 0) return; // Add check
+
                 let highestBlock = tower[0];
                 for (const block of tower) {
                     if (block.y < highestBlock.y) {
@@ -544,7 +550,7 @@
                 }
                 
                 // Check for 'easy' zone
-                if (player.x > centerZoneX + (BLOCK_WIDTH * 4)) {
+                if (player && player.x > centerZoneX + (BLOCK_WIDTH * 4)) { // Add check for player
                     this.speed *= 1.3; // 30% faster
                 }
             }
@@ -645,11 +651,12 @@
 
             // Create initial tower
             tower = [{ x: centerZoneX - (BLOCK_WIDTH / 2), y: groundY, width: BLOCK_WIDTH, height: BLOCK_HEIGHT }];
-            updateScore(0, 0); // Resets score UI
             
             // Create player
             player = new Player();
             player.respawnOnTower();
+            
+            updateScore(0, 0); // Resets score UI - MOVED after player/tower init
 
             // Create game arrays
             enemies = [];
@@ -701,11 +708,13 @@
             
             // Calculate tower dimensions
             let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
-            for(const block of tower) {
-                if(block.x < minX) minX = block.x;
-                if(block.x + block.width > maxX) maxX = block.x + block.width;
-                if(block.y < minY) minY = block.y;
-                if(block.y + block.height > maxY) maxY = block.y + block.height;
+            if (Array.isArray(tower)) { // Add check
+                for(const block of tower) {
+                    if(block.x < minX) minX = block.x;
+                    if(block.x + block.width > maxX) maxX = block.x + block.width;
+                    if(block.y < minY) minY = block.y;
+                    if(block.y + block.height > maxY) maxY = block.y + block.height;
+                }
             }
             
             const towerPixelHeight = maxY - minY;
@@ -725,6 +734,7 @@
         }
 
         function update() {
+            if (!player) return; // Don't update if player doesn't exist yet
             // Update player
             player.update();
             if(player.frozen) return; // Stop all other updates if frozen
@@ -790,8 +800,10 @@
             showStatusMessage(`-${damage} HP`, "#FCD34D"); // Yellow
             
             enemies.splice(enemyIndex, 1);
-            player.vy = -5; // Knockback
-            player.onGround = false;
+            if (player) { // Add check
+                player.vy = -5; // Knockback
+                player.onGround = false;
+            }
         }
 
         function draw() {
@@ -804,13 +816,27 @@
             }
             
             // --- Camera ---
-            const cameraTarget = player.y - canvas.height * 0.6;
-            // --- Water level check for camera ---
-            const waterCamera = waterLevel - canvas.height * 0.8; // Keep water in view
+            // Find tower top for camera
+            let towerTopY = groundY;
+            if (Array.isArray(tower)) { // Add check
+                for (const block of tower) {
+                    if (block.y < towerTopY) {
+                        towerTopY = block.y;
+                    }
+                }
+            }
             
-            const groundCamera = groundY - canvas.height * 0.6;
-            // Camera follows player, but doesn't go below ground or hide water
-            cameraY = Math.max(0, cameraTarget, groundCamera, waterCamera); 
+            // Use player.y if player exists, otherwise default to ground
+            const playerY = player ? player.y : groundY;
+            const cameraTarget = playerY - canvas.height * 0.6; // Viewport for player
+            const towerTopCameraView = towerTopY - 50; // Viewport for tower top (with 50px padding)
+            const waterCameraView = waterLevel - canvas.height * 0.8; // Viewport for water level
+            const groundCameraView = groundY - canvas.height * 0.8; // Viewport for ground
+
+            // The camera follows the player (cameraTarget), but will "zoom out"
+            // (by moving cameraY up, to a smaller value) to ensure the
+            // highest element (tower, water, or ground) is always visible.
+            cameraY = Math.min(cameraTarget, towerTopCameraView, waterCameraView, groundCameraView);
             
             // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -841,24 +867,26 @@
             ctx.fillStyle = '#9A6A4E'; // Brown
             ctx.strokeStyle = '#5C4033'; // Dark Brown
             ctx.lineWidth = 4;
-            for (const block of tower) {
-                ctx.fillRect(block.x, block.y - cameraY, block.width, block.height);
-                ctx.strokeRect(block.x, block.y - cameraY, block.width, block.height);
+            if (Array.isArray(tower)) { // Add check
+                for (const block of tower) {
+                    ctx.fillRect(block.x, block.y - cameraY, block.width, block.height);
+                    ctx.strokeRect(block.x, block.y - cameraY, block.width, block.height);
+                }
             }
 
             // Draw player
-            player.draw();
+            if (player) player.draw(); // Add check
             // Draw enemies
             for (const enemy of enemies) enemy.draw();
             // Draw boons
             for (const boon of boons) boon.draw();
             
             // Draw Zone effects
-            if(player.x < centerZoneX - (BLOCK_WIDTH * 4)) {
+            if(player && player.x < centerZoneX - (BLOCK_WIDTH * 4)) { // Add check
                 // Dark Zone
                 ctx.fillStyle = 'rgba(0,0,50,0.15)';
                 ctx.fillRect(0,0,canvas.width, canvas.height);
-            } else if (player.x > centerZoneX + (BLOCK_WIDTH * 4)) {
+            } else if (player && player.x > centerZoneX + (BLOCK_WIDTH * 4)) { // Add check
                 // Hard Zone
                 ctx.fillStyle = 'rgba(255,0,0,0.05)';
                 ctx.fillRect(0,0,canvas.width, canvas.height);
@@ -931,8 +959,8 @@
                 // Incorrect
                 updateScore(-2, 0); // -2 points, 0 blocks
                 showStatusMessage('Incorrect! -2 Score', '#EF4444');
-                player.frozen = true;
-                setTimeout(() => { player.frozen = false; }, 2000); // 2 second freeze
+                if (player) player.frozen = true; // Add check
+                setTimeout(() => { if (player) player.frozen = false; }, 2000); // 2 second freeze
             }
             
             if (health > 0) {
@@ -943,14 +971,17 @@
         }
 
         function addTowerBlock() {
+            if (!player) return; // Add check
             // Find player's grid position
             const playerGridX = Math.round(player.x / BLOCK_WIDTH) * BLOCK_WIDTH;
             
             // Find highest block at this X position
             let highestYatX = groundY + BLOCK_HEIGHT; // Start at ground
-            for(const block of tower) {
-                if(block.x === playerGridX) {
-                    highestYatX = Math.min(highestYatX, block.y);
+            if (Array.isArray(tower)) { // Add check
+                for(const block of tower) {
+                    if(block.x === playerGridX) {
+                        highestYatX = Math.min(highestYatX, block.y);
+                    }
                 }
             }
             
@@ -960,7 +991,9 @@
                 width: BLOCK_WIDTH,
                 height: BLOCK_HEIGHT
             };
-            tower.push(newBlock);
+            if (Array.isArray(tower)) { // Add check
+                tower.push(newBlock);
+            }
             
             // Move player up to new block
             player.y = newBlock.y - player.height;
@@ -1011,7 +1044,7 @@
         
         // Keyboard Controls
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && gameRunning) { e.preventDefault(); player.jump(); }
+            if (e.code === 'Space' && gameRunning && player) { e.preventDefault(); player.jump(); }
             if (e.code === 'ArrowLeft' || e.code === 'KeyA') isMovingLeft = true;
             if (e.code === 'ArrowRight' || e.code === 'KeyD') isMovingRight = true;
             if (e.code === 'KeyB' && gameRunning) { e.preventDefault(); showQuiz(); } // 'B' for Build/Quiz
@@ -1034,8 +1067,8 @@
         btnRight.addEventListener('mouseup', () => isMovingRight = false);
         btnRight.addEventListener('mouseleave', () => isMovingRight = false);
 
-        btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); if(gameRunning) player.jump(); }, { passive: false });
-        btnJump.addEventListener('mousedown', () => { if(gameRunning) player.jump(); });
+        btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); if(gameRunning && player) player.jump(); }, { passive: false });
+        btnJump.addEventListener('mousedown', () => { if(gameRunning && player) player.jump(); });
 
         btnQuiz.addEventListener('touchstart', (e) => { e.preventDefault(); if(gameRunning) showQuiz(); }, { passive: false });
         btnQuiz.addEventListener('mousedown', () => { if(gameRunning) showQuiz(); });
@@ -1078,3 +1111,4 @@
     </script>
 </body>
 </html>
+
