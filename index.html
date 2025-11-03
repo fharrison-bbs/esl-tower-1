@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ESL Tower Jumper</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the game */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark blue-gray background */
+            overflow: hidden; /* Hide scrollbars */
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            min-height: -webkit-fill-available; /* iOS full height */
+        }
+        canvas {
+            /* * Removed background-color and background-image.
+             * The canvas is cleared and redrawn every frame by the gameLoop(),
+             * so these CSS properties were redundant and never seen.
+            */
+            display: block;
+            border-radius: 0.5rem; /* rounded-lg */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            height: 100%;
+        }
+        
+        #game-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 600px; /* Max game width */
+            margin: 0 auto;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            flex-grow: 1;
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Modal backdrop */
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+        }
+        
+        /* Health Bar */
+        #health-bar-container {
+            background-color: #4B5563; /* Gray-600 */
+            border-radius: 9999px;
+            overflow: hidden;
+            border: 2px solid #9CA3AF; /* Gray-400 */
+        }
+        #health-bar-filler {
+            height: 1.25rem; /* 20px */
+            background-color: #10B981; /* Green-500 */
+            width: 100%;
+            transition: width 0.3s ease-in-out, background-color 0.3s ease;
+        }
+
+        /* On-screen controls */
+        #game-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 12px 10px;
+            background-color: #1F2937; /* Gray-800 */
+            flex-shrink: 0;
+        }
+        .control-btn {
+            background-color: #4B5563; /* Gray-600 */
+            color: white;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            border: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            -webkit-user-select: none; /* Disable text selection */
+            user-select: none;
+            touch-action: manipulation; /* Fast touch */
+        }
+        .control-btn:active {
+            background-color: #6B7280; /* Gray-500 */
+            transform: translateY(2px);
+        }
+        .control-btn:disabled {
+            background-color: #374151; /* Gray-700 */
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Specific button styles */
+        #btn-jump {
+            background-color: #3B82F6; /* Blue-500 */
+            width: 110px; /* Smaller */
+            font-size: 1.1rem;
+        }
+        #btn-jump:active { background-color: #2563EB; }
+        
+        #btn-quiz {
+            background-color: #F59E0B; /* Amber-500 */
+            width: 110px; /* Smaller */
+            font-size: 1.1rem;
+        }
+        #btn-quiz:active { background-color: #D97706; }
+
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen text-white p-2 sm:p-4">
+
+    <!-- Game UI Wrapper -->
+    <div id="game-wrapper">
+        <!-- Game Header -->
+        <div class="flex justify-between items-center mb-2 px-2 w-full">
+            <div class="flex-1">
+                <h1 class="text-xl sm:text-3xl font-bold text-amber-400">ESL Tower Jumper</h1>
+                <p class="text-xs sm:text-base text-gray-300">Build your tower and dodge enemies!</p>
+            </div>
+            <div class="text-right flex-1">
+                <h2 class="text-lg sm:text-lg font-semibold">SCORE: <span id="score-display" class="font-bold text-white">0</span></h2>
+                <h2 class="text-lg sm:text-lg font-semibold">HP: <span id="hp-display" class="font-bold text-white">100</span></h2>
+                <h2 class="text-sm sm:text-base font-semibold">BLOCKS: <span id="blocks-display" class="font-bold text-white">0</span></h2>
+            </div>
+        </div>
+
+        <!-- Health Bar -->
+        <div id="health-bar-container" class="w-full mb-2 mx-auto max-w-2xl">
+            <div id="health-bar-filler"></div>
+        </div>
+
+        <!-- Game Canvas Area -->
+        <div id="game-container" class="w-full max-w-2xl mx-auto">
+            <canvas id="gameCanvas" width="600" height="400"></canvas>
+            <!-- Status Message (e.g., "Correct!") -->
+            <div id="status-message" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl sm:text-5xl font-extrabold text-white" style="text-shadow: 2px 2px 8px rgba(0,0,0,0.7); display: none;">
+            </div>
+        </div>
+    </div>
+
+    <!-- On-screen Controls -->
+    <div id="game-controls" class="max-w-2xl w-full">
+        <div class="flex space-x-2">
+            <button id="btn-left" class="control-btn">◀ Left</button>
+            <button id="btn-right" class="control-btn">Right ▶</button>
+        </div>
+        <button id="btn-quiz" class="control-btn">Quiz!</button>
+        <button id="btn-jump" class="control-btn">Jump!</button>
+    </div>
+
+
+    <!-- Quiz Modal -->
+    <div id="quiz-modal" class="absolute inset-0 flex items-center justify-center modal-backdrop p-4" style="display: none;">
+        <div class="bg-white text-gray-900 p-8 rounded-xl shadow-2xl w-full max-w-lg transform transition-all scale-95 opacity-0" id="quiz-modal-content">
+            <h2 class="text-2xl font-bold mb-4" id="question-topic">Grammar Question!</h2>
+            <p class="text-xl mb-6" id="question-prompt">...</p>
+            <div class="space-y-3">
+                <button id="option-a" class="w-full text-left text-lg p-4 bg-gray-100 hover:bg-amber-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"></button>
+                <button id="option-b" class="w-full text-left text-lg p-4 bg-gray-100 hover:bg-amber-200 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start/End Game Modal -->
+    <div id="start-modal" class="absolute inset-0 flex items-center justify-center modal-backdrop p-4">
+        <div class="bg-white text-gray-900 p-8 rounded-xl shadow-2xl w-full max-w-lg text-center">
+            <h2 class="text-3xl font-bold mb-4" id="modal-title">Welcome to Tower Jumper!</h2>
+            <p class="text-lg mb-6" id="modal-instructions">
+                - Move with <span class="font-bold p-1 bg-gray-200 rounded">A/D</span> or <span class="font-bold p-1 bg-gray-200 rounded">◀▶</span>.
+                - Jump with <span class="font-bold p-1 bg-gray-200 rounded">Spacebar</span> or <span class="font-bold p-1 bg-gray-200 rounded">Jump</span>.
+                - Dodge enemies! (Hit: -1 to -5 HP)
+                - Press <span class="font-bold p-1 bg-gray-200 rounded">Quiz</span> to build. (Wrong: -2 Score & 2s Freeze)
+                - Don't fall! (Fall: -10 HP)
+                - Game ends at 0 HP. Good luck!
+            </p>
+            <div class="space-y-3">
+                <button id="start-button" class="w-full text-xl font-bold text-white p-4 bg-green-600 hover:bg-green-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-500">
+                    Start Game
+                </button>
+                <button id="screenshot-button" class="w-full text-lg font-semibold text-white p-3 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400" style="display: none;">
+                    Take Screenshot
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Elements ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score-display');
+        const blocksDisplay = document.getElementById('blocks-display');
+        const hpDisplay = document.getElementById('hp-display');
+        const healthBarFiller = document.getElementById('health-bar-filler');
+        
+        // Modals
+        const quizModal = document.getElementById('quiz-modal');
+        const quizModalContent = document.getElementById('quiz-modal-content');
+        const startModal = document.getElementById('start-modal');
+        const startButton = document.getElementById('start-button');
+        const screenshotButton = document.getElementById('screenshot-button');
+        const modalTitle = document.getElementById('modal-title');
+        const modalInstructions = document.getElementById('modal-instructions');
+        
+        // Quiz Elements
+        const questionTopic = document.getElementById('question-topic');
+        const questionPrompt = document.getElementById('question-prompt');
+        const optionAButton = document.getElementById('option-a');
+        const optionBButton = document.getElementById('option-b');
+        
+        // On-screen Controls
+        const btnLeft = document.getElementById('btn-left');
+        const btnRight = document.getElementById('btn-right');
+        const btnJump = document.getElementById('btn-jump');
+        const btnQuiz = document.getElementById('btn-quiz');
+        
+        // Status Message
+        const statusMessage = document.getElementById('status-message');
+
+        // --- Game Constants ---
+        const BLOCK_WIDTH = 50;
+        const BLOCK_HEIGHT = 20;
+        const PLAYER_WIDTH = 30;
+        const PLAYER_HEIGHT = 30;
+        const PLAYER_RADIUS = 15;
+
+        // --- Game State ---
+        let player, tower, enemies, boons;
+        let gravity = 0.5;
+        let totalScore = 0;
+        let blocksPlaced = 0;
+        let questionScore = 0; // <-- ADDED: To track points from questions separately
+        let health = 100;
+        let gameRunning = false;
+        let animationFrameId;
+        
+        let allQuestions = [];
+        let currentQuestions = [];
+        let currentQuestion;
+
+        let enemySpawnTimer = 0;
+        let boonSpawnTimer = 0;
+        let isMovingLeft = false;
+        let isMovingRight = false;
+        let cameraY = 0;
+        let groundY = 0;
+        let centerZoneX = 0;
+        
+        // --- Water Level ---
+        let waterLevel = 0;
+        const WATER_RISE_SPEED = BLOCK_HEIGHT / (20 * 60); // Rises 1 block height every 20 seconds
+
+        // --- New Question Generator ---
+        function generateQuestions() {
+            allQuestions = [];
+            
+            // --- DATA POOLS ---
+            // Simple subjects: [name, simple_verb, continuous_verb_prefix]
+            const subjects = [
+                ['I', 'play', 'am'],
+                ['You', 'play', 'are'],
+                ['He', 'plays', 'is'],
+                ['She', 'plays', 'is'],
+                ['We', 'play', 'are'],
+                ['They', 'play', 'are'],
+                ['The cat', 'sleeps', 'is'],
+                ['The dog', 'runs', 'is'],
+                ['My friend', 'jumps', 'is'],
+                ['The bird', 'sings', 'is'],
+                ['My mom', 'cooks', 'is'],
+                ['My dad', 'reads', 'is']
+            ];
+
+            // Simple action verbs: [simple_form, s_form, ing_form]
+            const verbs = [
+                ['run', 'runs', 'running'],
+                ['eat', 'eats', 'eating'],
+                ['sleep', 'sleeps', 'sleeping'],
+                ['play', 'plays', 'playing'],
+                ['sing', 'sings', 'singing'],
+                ['read', 'reads', 'reading'],
+                ['swim', 'swims', 'swimming'],
+                ['draw', 'draws', 'drawing'],
+                ['walk', 'walks', 'walking']
+            ];
+            
+            // Simple stative (non-action) verbs: [simple_form, s_form, ing_form (the "wrong" one)]
+            const stativeVerbs = [
+                ['like', 'likes', 'liking'],
+                ['want', 'wants', 'wanting'],
+                ['need', 'needs', 'needing'],
+                ['love', 'loves', 'loving'],
+                ['have', 'has', 'having'] // as in possession
+            ];
+
+            // --- QUESTION TEMPLATES ---
+
+            // Template 1: Action Verbs (Continuous)
+            // "Look! [Subject] (....) right now."
+            subjects.forEach(s => {
+                const subjectName = s[0];
+                const contPrefix = s[2];
+                
+                verbs.forEach(v => {
+                    const simpleVerb = (subjectName === 'I' || subjectName === 'You' || subjectName === 'We' || subjectName === 'They') ? v[0] : v[1];
+                    const contVerb = `${contPrefix} ${v[2]}`;
+                    
+                    allQuestions.push({
+                        topic: 'Present Continuous',
+                        prompt: `Look! ${subjectName} (....) right now.`,
+                        optionA: simpleVerb,
+                        optionB: contVerb,
+                        answer: 'b'
+                    });
+                });
+            });
+
+            // Template 2: Action Verbs (Simple)
+            // "[Subject] (....) every day."
+            subjects.forEach(s => {
+                const subjectName = s[0];
+                const contPrefix = s[2];
+                
+                verbs.forEach(v => {
+                    const simpleVerb = (subjectName === 'I' || subjectName === 'You' || subjectName === 'We' || subjectName === 'They') ? v[0] : v[1];
+                    const contVerb = `${contPrefix} ${v[2]}`;
+                    
+                    allQuestions.push({
+                        topic: 'Present Simple',
+                        prompt: `${subjectName} (....) every day.`,
+                        optionA: contVerb,
+                        optionB: simpleVerb,
+                        answer: 'b'
+                    });
+                });
+            });
+
+            // Template 3: Stative Verbs (Simple)
+            // "[Subject] (....) ice cream."
+            subjects.forEach(s => {
+                const subjectName = s[0];
+                const contPrefix = s[2];
+                
+                stativeVerbs.forEach(v => {
+                    const simpleVerb = (subjectName === 'I' || subjectName === 'You' || subjectName === 'We' || subjectName === 'They') ? v[0] : v[1];
+                    const contVerb = `${contPrefix} ${v[2]}`;
+                    const item = (v[0] === 'have') ? 'a new bike.' : 'ice cream.';
+
+                    allQuestions.push({
+                        topic: 'Present Simple',
+                        prompt: `${subjectName} (....) ${item}`,
+                        optionA: contVerb,
+                        optionB: simpleVerb,
+                        answer: 'b'
+                    });
+                });
+            });
+        }
+        
+        function shuffleQuestions() {
+            currentQuestions = [...allQuestions].sort(() => Math.random() - 0.5);
+        }
+
+        // --- Game Classes ---
+        class Player {
+            constructor() {
+                this.width = PLAYER_WIDTH;
+                this.height = PLAYER_HEIGHT;
+                this.radius = PLAYER_RADIUS;
+                this.x = canvas.width / 2 - this.radius;
+                this.y = groundY - this.height;
+                this.vy = 0; // Vertical velocity
+                this.speed = 4;
+                this.onGround = false;
+                this.frozen = false;
+                this.underwaterTimer = 0;
+            }
+
+            draw() {
+                const drawY = this.y - cameraY;
+
+                // Draw player shadow
+                if(this.onGround) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                    ctx.beginPath();
+                    // Find block directly below
+                    let blockY = groundY + BLOCK_HEIGHT;
+                    for (const block of tower) {
+                        if (this.x + this.width > block.x && this.x < block.x + block.width) {
+                            blockY = Math.min(blockY, block.y);
+                        }
+                    }
+                    ctx.ellipse(this.x + this.radius, (blockY - cameraY), this.radius, 4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Draw player
+                ctx.fillStyle = this.frozen ? '#6B7280' : '#F59E0B'; // Gray if frozen
+                ctx.beginPath();
+                ctx.arc(this.x + this.radius, drawY + this.radius, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#B45309';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw player face
+                ctx.fillStyle = 'black';
+                const eyeY = drawY + this.radius - 3;
+                const mouthY = drawY + this.radius + 4;
+                if(this.frozen) { // Sad/frozen face
+                    ctx.fillRect(this.x + this.radius - 8, eyeY, 4, 2); // Left eye
+                    ctx.fillRect(this.x + this.radius + 4, eyeY, 4, 2); // Right eye
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.radius, mouthY + 8, 6, 1.2 * Math.PI, 1.8 * Math.PI); // Frown
+                    ctx.stroke();
+                } else { // Smile face
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.radius - 5, eyeY, 2, 0, Math.PI * 2); // Left eye
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.radius + 5, eyeY, 2, 0, Math.PI * 2); // Right eye
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.radius, mouthY, 6, 0.2 * Math.PI, 0.8 * Math.PI); // Smile
+                    ctx.stroke();
+                }
+            }
+
+            update() {
+                if(this.frozen) return; // Can't move if frozen
+
+                // Horizontal movement
+                if (isMovingLeft) {
+                    this.x -= this.speed;
+                } else if (isMovingRight) {
+                    this.x += this.speed;
+                }
+                
+                // Screen bounds
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+
+                // Apply gravity
+                if (!this.onGround) {
+                    this.vy += gravity;
+                    this.y += this.vy;
+                }
+
+                // Check for ground collision
+                this.onGround = false;
+                
+                // Check against all tower blocks
+                for (const block of tower) {
+                    if (this.vy >= 0 && // Only check if falling
+                        this.y + this.height >= block.y && 
+                        this.y + this.height <= block.y + 20 && // Within a small tolerance
+                        this.x + this.width > block.x && 
+                        this.x < block.x + block.width) 
+                    {
+                        this.y = block.y - this.height;
+                        this.vy = 0;
+                        this.onGround = true;
+                        break; // Found ground
+                    }
+                }
+
+                // Check for falling off
+                if (!this.onGround && this.y > groundY + 50) { // Fell off
+                    this.respawnOnTower();
+                    updateHealth(-10); // Fall damage
+                    showStatusMessage("Fell off! -10 HP", "#EF4444");
+                }
+                
+                // Check for water damage
+                if (this.y + this.height > waterLevel) {
+                    this.underwaterTimer++;
+                    if (this.underwaterTimer > 0 && this.underwaterTimer % 60 === 0) { // Every 1 second (60 frames)
+                        updateHealth(-5);
+                        showStatusMessage("Drowning! -5 HP", "#EF4444");
+                    }
+                } else {
+                    this.underwaterTimer = 0;
+                }
+            }
+            
+            respawnOnTower() {
+                // Find the highest block to respawn on
+                let highestBlock = tower[0];
+                for (const block of tower) {
+                    if (block.y < highestBlock.y) {
+                        highestBlock = block;
+                    }
+                }
+                this.y = highestBlock.y - this.height;
+                this.x = highestBlock.x + (highestBlock.width / 2) - this.radius;
+                this.vy = 0;
+                this.onGround = true;
+            }
+
+            jump() {
+                if (this.onGround && !this.frozen) {
+                    this.vy = -12; // Jump height
+                    this.onGround = false;
+                }
+            }
+        }
+
+        class Enemy {
+             constructor() {
+                this.type = ['bird', 'plane', 'alien'][Math.floor(Math.random() * 3)];
+                this.width = 30;
+                this.height = 20;
+                this.x = canvas.width;
+                this.speed = Math.random() * 2 + 2 + (blocksPlaced * 0.1);
+                
+                // Spawn at different heights
+                this.y = Math.random() * (canvas.height * 0.6); 
+                
+                // Adjust properties by type
+                if (this.type === 'bird') {
+                    this.color = '#FCD34D';
+                    this.speed += 0.5;
+                } else if (this.type === 'plane') {
+                    this.color = '#9CA3AF';
+                    this.speed += 1.5;
+                    this.width = 40;
+                } else { // alien
+                    this.color = '#34D399';
+                    this.vy = Math.random() > 0.5 ? 1 : -1;
+                }
+                
+                // Check for 'easy' zone
+                if (player.x > centerZoneX + (BLOCK_WIDTH * 4)) {
+                    this.speed *= 1.3; // 30% faster
+                }
+            }
+
+            draw() {
+                const drawY = this.y - cameraY;
+                ctx.fillStyle = this.color;
+                if(this.type === 'bird') {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, drawY + this.height / 2);
+                    ctx.lineTo(this.x + this.width / 2, drawY);
+                    ctx.lineTo(this.x + this.width, drawY + this.height / 2);
+                    ctx.lineTo(this.x + this.width / 2, drawY + this.height);
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (this.type === 'plane') {
+                    ctx.fillRect(this.x, drawY, this.width, this.height);
+                    ctx.fillRect(this.x + 10, drawY - 7, 5, 34);
+                    ctx.fillRect(this.x + 30, drawY + 7, 10, 6);
+                } else { // alien
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.width / 2, drawY + 4, 10, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.fillRect(this.x, drawY, this.width, this.height - 5);
+                }
+            }
+
+            update() {
+                this.x -= this.speed; // Move left
+                if (this.type === 'alien') {
+                    this.y += this.vy;
+                    if (this.y < 0 || this.y > canvas.height * 0.6) {
+                        this.vy *= -1;
+                    }
+                }
+            }
+        }
+        
+        class Boon {
+            constructor() {
+                this.width = 15;
+                this.height = 15;
+                this.radius = 7.5;
+                this.x = Math.random() * (centerZoneX - (BLOCK_WIDTH * 4)); // Spawn in left zone
+                this.y = Math.random() * (canvas.height * 0.6); // In the sky
+                this.color = '#10B981'; // Green
+                this.vy = 1;
+            }
+            
+            draw() {
+                const drawY = this.y - cameraY;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x + this.radius, drawY + this.radius, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                // Shine
+                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.beginPath();
+                ctx.arc(this.x + this.radius - 2, drawY + this.radius - 2, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            update() {
+                this.y += this.vy; // Float down
+                if (this.y > groundY - this.height) {
+                    this.y = groundY - this.height; // Rest on ground
+                }
+            }
+        }
+        
+        // --- Game Logic ---
+        function init() {
+            // (Re)set game state
+            totalScore = 0;
+            blocksPlaced = 0;
+            questionScore = 0; // <-- ADDED: Reset question score
+            health = 100;
+            updateHealth(0); // Updates UI
+            blocksDisplay.textContent = 0;
+            gameRunning = true;
+            enemySpawnTimer = 0;
+            boonSpawnTimer = 0;
+            isMovingLeft = false;
+            isMovingRight = false;
+            cameraY = 0;
+            
+            // Set canvas-dependent vars
+            groundY = canvas.height - BLOCK_HEIGHT;
+            waterLevel = groundY + BLOCK_HEIGHT; // Start water just below the ground
+            
+            centerZoneX = canvas.width / 2;
+            
+            // Generate and shuffle questions
+            if (allQuestions.length === 0) { 
+                generateQuestions();
+            }
+            shuffleQuestions();
+
+            // Create initial tower
+            tower = [{ x: centerZoneX - (BLOCK_WIDTH / 2), y: groundY, width: BLOCK_WIDTH, height: BLOCK_HEIGHT }];
+            updateScore(0, 0); // Resets score UI
+            
+            // Create player
+            player = new Player();
+            player.respawnOnTower();
+
+            // Create game arrays
+            enemies = [];
+            boons = [];
+
+            // Reset modal
+            startModal.style.display = 'none';
+            screenshotButton.style.display = 'none';
+            startButton.style.display = 'block';
+
+            // Start game loop
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            gameLoop();
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        
+        function updateHealth(amount) {
+            health += amount;
+            if (health > 100) health = 100;
+            if (health < 0) health = 0;
+            
+            hpDisplay.textContent = health;
+            healthBarFiller.style.width = `${health}%`;
+            
+            if (health <= 25) {
+                healthBarFiller.style.backgroundColor = '#EF4444'; // Red-500
+            } else if (health <= 50) {
+                healthBarFiller.style.backgroundColor = '#F59E0B'; // Amber-500
+            } else {
+                healthBarFiller.style.backgroundColor = '#10B981'; // Green-500
+            }
+            
+            if (health <= 0) {
+                gameOver();
+            }
+        }
+        
+        // --- REFACTORED updateScore ---
+        function updateScore(pointsFromQuestion, newBlocks) {
+            questionScore += pointsFromQuestion;
+            if (newBlocks) blocksPlaced++;
+            
+            // Calculate tower dimensions
+            let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0;
+            for(const block of tower) {
+                if(block.x < minX) minX = block.x;
+                if(block.x + block.width > maxX) maxX = block.x + block.width;
+                if(block.y < minY) minY = block.y;
+                if(block.y + block.height > maxY) maxY = block.y + block.height;
+            }
+            
+            const towerPixelHeight = maxY - minY;
+            const towerPixelWidth = maxX - minX;
+            
+            // Score from height (1 point per block high)
+            const scoreHeight = Math.round(towerPixelHeight / BLOCK_HEIGHT) * 1;
+            // Score from width (2 points per block wide)
+            const scoreWidth = Math.round(towerPixelWidth / BLOCK_WIDTH) * 2;
+            
+            // Recalculate total score
+            totalScore = scoreHeight + scoreWidth + questionScore;
+            if (totalScore < 0) totalScore = 0; // Don't go negative
+            
+            scoreDisplay.textContent = totalScore;
+            blocksDisplay.textContent = blocksPlaced;
+        }
+
+        function update() {
+            // Update player
+            player.update();
+            if(player.frozen) return; // Stop all other updates if frozen
+
+            // Spawn enemies
+            enemySpawnTimer++;
+            if (enemySpawnTimer > (100 - blocksPlaced * 2)) {
+                if(enemies.length < 10) {
+                    enemies.push(new Enemy());
+                }
+                enemySpawnTimer = 0;
+            }
+            
+            // Spawn boons in left zone
+            boonSpawnTimer++;
+            if(player.x < centerZoneX - (BLOCK_WIDTH * 4) && boonSpawnTimer > 300) { // 5 seconds
+                if(boons.length < 3) {
+                    boons.push(new Boon());
+                }
+                boonSpawnTimer = 0;
+            }
+
+            // Update enemies & check for collisions
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                enemy.update();
+                if (checkCollision(player, enemy)) {
+                    playerHit(i);
+                    return; // Stop loop after hit
+                }
+                if (enemy.x + enemy.width < 0) enemies.splice(i, 1);
+            }
+            
+            // Update boons & check for collisions
+            for (let i = boons.length - 1; i >= 0; i--) {
+                const boon = boons[i];
+                boon.update();
+                if (checkCollision(player, boon)) {
+                    updateHealth(10); // Heal 10 HP
+                    showStatusMessage("+10 HP", "#10B981");
+                    boons.splice(i, 1);
+                }
+                // Remove if off-screen (e.g., from different zone)
+                if (boon.x > canvas.width || boon.y > canvas.height) boons.splice(i, 1);
+            }
+            
+            // Update Water Level
+            waterLevel -= WATER_RISE_SPEED; // Water rises gradually
+        }
+        
+        function checkCollision(rect1, rect2) {
+            return (
+                rect1.x < rect2.x + rect2.width &&
+                rect1.x + rect1.width > rect2.x &&
+                rect1.y < rect2.y + rect2.height &&
+                rect1.y + rect1.height > rect2.y
+            );
+        }
+        
+        function playerHit(enemyIndex) {
+            const damage = Math.floor(Math.random() * 5) + 1; // 1-5 damage
+            updateHealth(-damage);
+            showStatusMessage(`-${damage} HP`, "#FCD34D"); // Yellow
+            
+            enemies.splice(enemyIndex, 1);
+            player.vy = -5; // Knockback
+            player.onGround = false;
+        }
+
+        function draw() {
+            // Handle canvas resizing
+            if (canvas.width !== canvas.parentElement.clientWidth || canvas.height !== canvas.parentElement.clientHeight) {
+                canvas.width = canvas.parentElement.clientWidth;
+                canvas.height = canvas.parentElement.clientHeight;
+                centerZoneX = canvas.width / 2;
+                groundY = canvas.height - BLOCK_HEIGHT; // Update groundY based on resize
+            }
+            
+            // --- Camera ---
+            const cameraTarget = player.y - canvas.height * 0.6;
+            // --- Water level check for camera ---
+            const waterCamera = waterLevel - canvas.height * 0.8; // Keep water in view
+            
+            const groundCamera = groundY - canvas.height * 0.6;
+            // Camera follows player, but doesn't go below ground or hide water
+            cameraY = Math.max(0, cameraTarget, groundCamera, waterCamera); 
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background (sky and ground)
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#374151';
+            ctx.fillRect(0, groundY - cameraY, canvas.width, canvas.height - (groundY - cameraY));
+
+
+            <!-- --- DRAW WATER --- -->
+            const waterDrawY = waterLevel - cameraY;
+            ctx.fillStyle = 'rgba(2, 132, 199, 0.7)'; // sky-600 with 70% opacity
+            ctx.fillRect(0, waterDrawY, canvas.width, canvas.height - waterDrawY);
+
+            // Draw waves
+            ctx.fillStyle = 'rgba(125, 211, 252, 0.8)'; // sky-300 with 80% opacity
+            let waveOffset = Math.sin(Date.now() / 300) * 3; // Slow wave motion
+            for (let i = -30; i < canvas.width + 20; i += 20) { // Start earlier, go further
+                ctx.beginPath();
+                ctx.arc(i + 10, waterDrawY + waveOffset, 10, Math.PI, 2 * Math.PI, false);
+                ctx.fill();
+            }
+            <!-- --- END WATER --- -->
+
+            // Draw tower
+            ctx.fillStyle = '#9A6A4E'; // Brown
+            ctx.strokeStyle = '#5C4033'; // Dark Brown
+            ctx.lineWidth = 4;
+            for (const block of tower) {
+                ctx.fillRect(block.x, block.y - cameraY, block.width, block.height);
+                ctx.strokeRect(block.x, block.y - cameraY, block.width, block.height);
+            }
+
+            // Draw player
+            player.draw();
+            // Draw enemies
+            for (const enemy of enemies) enemy.draw();
+            // Draw boons
+            for (const boon of boons) boon.draw();
+            
+            // Draw Zone effects
+            if(player.x < centerZoneX - (BLOCK_WIDTH * 4)) {
+                // Dark Zone
+                ctx.fillStyle = 'rgba(0,0,50,0.15)';
+                ctx.fillRect(0,0,canvas.width, canvas.height);
+            } else if (player.x > centerZoneX + (BLOCK_WIDTH * 4)) {
+                // Hard Zone
+                ctx.fillStyle = 'rgba(255,0,0,0.05)';
+                ctx.fillRect(0,0,canvas.width, canvas.height);
+            }
+        }
+        
+        function showStatusMessage(text, color) {
+            statusMessage.textContent = text;
+            statusMessage.style.color = color;
+            statusMessage.style.display = 'block';
+            statusMessage.style.opacity = 1;
+            
+            setTimeout(() => { statusMessage.style.opacity = 0; }, 1000);
+            setTimeout(() => { statusMessage.style.display = 'none'; }, 1500);
+        }
+
+        function showQuiz() {
+            if(gameRunning) {
+                gameRunning = false;
+                btnQuiz.disabled = true;
+                
+                // --- REMOVED unused zone-checking logic ---
+                // The 'questionSet' variable was created but not used.
+                // The quiz pulls from the same 'currentQuestions' pool regardless of zone.
+
+                currentQuestion = currentQuestions.pop();
+                if (!currentQuestion) { // Reshuffle if empty
+                    shuffleQuestions();
+                    currentQuestion = currentQuestions.pop();
+                }
+
+                // Populate modal
+                questionTopic.textContent = `${currentQuestion.topic}`;
+                questionPrompt.textContent = currentQuestion.prompt;
+                optionAButton.textContent = `A. ${currentQuestion.optionA}`;
+                optionBButton.textContent = `B. ${currentQuestion.optionB}`;
+                
+                optionAButton.onclick = () => checkAnswer('a');
+                optionBButton.onclick = () => checkAnswer('b');
+                
+                quizModal.style.display = 'flex';
+                setTimeout(() => {
+                    quizModalContent.style.transform = 'scale(1)';
+                    quizModalContent.style.opacity = 1;
+                }, 10);
+            }
+        }
+
+        function checkAnswer(selectedOption) {
+            // Hide modal
+            quizModalContent.style.transform = 'scale(0.95)';
+            quizModalContent.style.opacity = 0;
+            setTimeout(() => { quizModal.style.display = 'none'; }, 300);
+
+            if (selectedOption === currentQuestion.answer) {
+                // Correct!
+                showStatusMessage('Correct! +2 Score', '#34D399');
+                updateScore(2, 1); // +2 points, +1 block
+                waterLevel += BLOCK_HEIGHT; // Push water down!
+                waterLevel = Math.min(waterLevel, groundY + BLOCK_HEIGHT); // Don't push below ground
+                
+                // Show water message after correct message
+                setTimeout(() => {
+                    // Check if game is still running (e.g. not game over screen)
+                    if (gameRunning) showStatusMessage("Water pushed back!", "#0284c7");
+                }, 1500); // 1.5s, after first message fades
+                
+                addTowerBlock();
+            } else {
+                // Incorrect
+                updateScore(-2, 0); // -2 points, 0 blocks
+                showStatusMessage('Incorrect! -2 Score', '#EF4444');
+                player.frozen = true;
+                setTimeout(() => { player.frozen = false; }, 2000); // 2 second freeze
+            }
+            
+            if (health > 0) {
+                gameRunning = true;
+                btnQuiz.disabled = false;
+                gameLoop();
+            }
+        }
+
+        function addTowerBlock() {
+            // Find player's grid position
+            const playerGridX = Math.round(player.x / BLOCK_WIDTH) * BLOCK_WIDTH;
+            
+            // Find highest block at this X position
+            let highestYatX = groundY + BLOCK_HEIGHT; // Start at ground
+            for(const block of tower) {
+                if(block.x === playerGridX) {
+                    highestYatX = Math.min(highestYatX, block.y);
+                }
+            }
+            
+            const newBlock = {
+                x: playerGridX,
+                y: highestYatX - BLOCK_HEIGHT,
+                width: BLOCK_WIDTH,
+                height: BLOCK_HEIGHT
+            };
+            tower.push(newBlock);
+            
+            // Move player up to new block
+            player.y = newBlock.y - player.height;
+            player.onGround = false;
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+
+            modalTitle.textContent = 'Game Over!';
+            modalInstructions.textContent = `Your final score is ${totalScore} with ${blocksPlaced} blocks. Good try!`;
+            startButton.textContent = 'Play Again?';
+            startButton.className = "w-full text-xl font-bold text-white p-4 bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400";
+            
+            screenshotButton.style.display = 'block'; // Show screenshot button
+            startModal.style.display = 'flex';
+        }
+        
+        function takeScreenshot() {
+            // Hide modal to get clean shot
+            startModal.style.display = 'none';
+            
+            // Redraw game one last time (forces UI to update)
+            draw(); 
+            // Add final score text to canvas
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(canvas.width / 2 - 150, canvas.height / 2 - 60, 300, 120);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 30px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 20);
+            ctx.font = 'bold 24px Inter, sans-serif';
+            ctx.fillText(`Final Score: ${totalScore}`, canvas.width / 2, canvas.height / 2 + 20);
+            
+            // Create image
+            const dataUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `esl-tower-score-${totalScore}.png`;
+            link.click();
+            
+            // Show modal again
+            startModal.style.display = 'flex';
+        }
+        
+        // --- Event Listeners ---
+        
+        // Keyboard Controls
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameRunning) { e.preventDefault(); player.jump(); }
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') isMovingLeft = true;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') isMovingRight = true;
+            if (e.code === 'KeyB' && gameRunning) { e.preventDefault(); showQuiz(); } // 'B' for Build/Quiz
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') isMovingLeft = false;
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') isMovingRight = false;
+        });
+        
+        // On-screen Button Controls
+        btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); isMovingLeft = true; }, { passive: false });
+        btnLeft.addEventListener('touchend', (e) => { e.preventDefault(); isMovingLeft = false; });
+        btnLeft.addEventListener('mousedown', () => isMovingLeft = true);
+        btnLeft.addEventListener('mouseup', () => isMovingLeft = false);
+        btnLeft.addEventListener('mouseleave', () => isMovingLeft = false);
+
+        btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); isMovingRight = true; }, { passive: false });
+        btnRight.addEventListener('touchend', (e) => { e.preventDefault(); isMovingRight = false; });
+        btnRight.addEventListener('mousedown', () => isMovingRight = true);
+        btnRight.addEventListener('mouseup', () => isMovingRight = false);
+        btnRight.addEventListener('mouseleave', () => isMovingRight = false);
+
+        btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); if(gameRunning) player.jump(); }, { passive: false });
+        btnJump.addEventListener('mousedown', () => { if(gameRunning) player.jump(); });
+
+        btnQuiz.addEventListener('touchstart', (e) => { e.preventDefault(); if(gameRunning) showQuiz(); }, { passive: false });
+        btnQuiz.addEventListener('mousedown', () => { if(gameRunning) showQuiz(); });
+
+        // Modal Buttons
+        startButton.addEventListener('click', init);
+        screenshotButton.addEventListener('click', takeScreenshot);
+
+        // --- Initial Load ---
+        function resizeGame() {
+            // Set initial wrapper height
+            const gameWrapper = document.getElementById('game-wrapper');
+            const controlsHeight = document.getElementById('game-controls').offsetHeight;
+            gameWrapper.style.height = `${(window.innerHeight || document.documentElement.clientHeight) - controlsHeight - 10}px`;
+            
+            // Resize canvas
+            const container = document.getElementById('game-container');
+            if (container) {
+                // Check if resize is actually needed
+                if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
+                    canvas.width = container.clientWidth;
+                    canvas.height = container.clientHeight;
+                    groundY = canvas.height - BLOCK_HEIGHT;
+                    centerZoneX = canvas.width / 2;
+                }
+            }
+            // Redraw if game is over but not started
+            if (!gameRunning && tower) {
+                draw();
+            }
+        }
+        
+        window.addEventListener('resize', resizeGame);
+        
+        document.addEventListener('DOMContentLoaded', () => {
+             resizeGame();
+             startModal.style.display = 'flex';
+        });
+        
+    </script>
+</body>
+</html>
